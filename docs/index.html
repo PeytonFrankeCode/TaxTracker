@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TaxTracker</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>TaxTracker</h1>
+  <div class="header-meta">
+    <span id="year-label"></span>
+    <span id="mode-badge" title="Sales mode — change in Settings"></span>
+  </div>
+  <nav>
+    <button data-tab="dashboard" class="active">Dashboard</button>
+    <button data-tab="add">Add Entry</button>
+    <button data-tab="map">Nexus Map</button>
+    <button data-tab="records">Records</button>
+    <button data-tab="settings">Settings</button>
+  </nav>
+</header>
+
+<div id="alerts"></div>
+
+<main>
+  <!-- Dashboard -->
+  <section id="tab-dashboard" class="tab active">
+    <div class="cards">
+      <div class="card"><h3>Total estimated tax</h3><p id="d-total"></p></div>
+      <div class="card"><h3>Payments made</h3><p id="d-paid"></p></div>
+      <div class="card" id="d-balance-card"><h3 id="d-balance-label">Balance due</h3><p id="d-balance"></p></div>
+      <div class="card"><h3>Next deadline</h3><p id="d-deadline"></p></div>
+    </div>
+    <div class="panel">
+      <h2>Breakdown</h2>
+      <table id="d-breakdown"></table>
+    </div>
+    <div class="panel">
+      <h2>Quarterly deadlines</h2>
+      <table id="d-deadlines"></table>
+    </div>
+  </section>
+
+  <!-- Add Entry -->
+  <section id="tab-add" class="tab">
+    <div class="forms">
+      <form id="f-income" class="panel">
+        <h2>Income</h2>
+        <label>Amount ($)<input type="number" step="0.01" min="0.01" name="amount" required></label>
+        <label>Source<input name="source" placeholder="MySaaS" required></label>
+        <label>Type<select name="type">
+          <option value="saas">saas (self-employment)</option>
+          <option value="freelance">freelance (self-employment)</option>
+          <option value="business">business (self-employment)</option>
+          <option value="w2">w2</option>
+          <option value="other">other</option>
+        </select></label>
+        <label>Date<input type="date" name="date" required></label>
+        <button>Add income</button>
+      </form>
+
+      <form id="f-expense" class="panel">
+        <h2>Expense</h2>
+        <label>Amount ($)<input type="number" step="0.01" min="0.01" name="amount" required></label>
+        <label>Description<input name="description" placeholder="AWS hosting" required></label>
+        <label>Date<input type="date" name="date" required></label>
+        <button>Add expense</button>
+      </form>
+
+      <form id="f-payment" class="panel">
+        <h2>Tax payment</h2>
+        <label>Amount ($)<input type="number" step="0.01" min="0.01" name="amount" required></label>
+        <label>Kind<select name="kind"><option>estimated</option><option>withholding</option></select></label>
+        <label>Jurisdiction<select name="jurisdiction"><option>federal</option><option>state</option></select></label>
+        <label>Date<input type="date" name="date" required></label>
+        <button>Add payment</button>
+      </form>
+
+      <form id="f-sale" class="panel">
+        <h2>Sale (nexus tracking)</h2>
+        <p class="hint" id="sale-mode-hint"></p>
+        <label>Amount ($)<input type="number" step="0.01" min="0.01" name="amount" required></label>
+        <label>Buyer's state<select name="state" id="sale-state"></select></label>
+        <label>Transactions<input type="number" min="1" value="1" name="transactions" required></label>
+        <label>Date<input type="date" name="date" required></label>
+        <button>Add sale</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- Nexus Map -->
+  <section id="tab-map" class="tab">
+    <div class="panel">
+      <h2>Sales-tax nexus by state</h2>
+      <p class="hint">Click a state for its threshold. Colors show how much of the
+        economic-nexus threshold your sales into that state have used this year.</p>
+      <div class="legend">
+        <span><i class="sw sw-none"></i>No sales</span>
+        <span><i class="sw sw-ok"></i>Below 80%</span>
+        <span><i class="sw sw-warn"></i>Approaching (80%+)</span>
+        <span><i class="sw sw-hit"></i>Threshold reached</span>
+        <span><i class="sw sw-notax"></i>No state sales tax</span>
+      </div>
+      <div id="usmap"></div>
+      <div id="state-detail" class="panel hidden"></div>
+    </div>
+  </section>
+
+  <!-- Records -->
+  <section id="tab-records" class="tab">
+    <div class="panel"><h2>Income</h2><table id="r-income"></table></div>
+    <div class="panel"><h2>Expenses</h2><table id="r-expenses"></table></div>
+    <div class="panel"><h2>Payments</h2><table id="r-payments"></table></div>
+    <div class="panel"><h2>Sales</h2><table id="r-sales"></table></div>
+  </section>
+
+  <!-- Settings -->
+  <section id="tab-settings" class="tab">
+    <form id="f-settings" class="panel">
+      <h2>Settings</h2>
+      <label>Tax year<input type="number" name="year" min="2018" max="2099" required></label>
+      <label>Filing status<select name="filing_status"><option>single</option><option>married</option></select></label>
+      <label>Home state (for state income tax)<select name="state" id="settings-state"></select></label>
+      <label>Custom state rate (decimal, e.g. 0.05 — blank for built-in)
+        <input type="number" step="0.0001" min="0" max="1" name="state_rate"></label>
+      <label>Sales mode
+        <select name="sales_mode">
+          <option value="online">online — record the buyer's state on each sale</option>
+          <option value="in-person">in-person — sales default to your home state</option>
+        </select></label>
+      <button>Save settings</button>
+    </form>
+    <div class="panel">
+      <h2>Your data</h2>
+      <p class="hint">Data is stored only in this browser (localStorage). Export/import
+        uses the same JSON format as the TaxTracker CLI's data file.</p>
+      <button id="btn-export">Export JSON</button>
+      <label class="filebtn">Import JSON<input type="file" id="btn-import" accept=".json"></label>
+      <button id="btn-wipe" class="danger">Delete all data</button>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p><strong>Disclaimer:</strong> TaxTracker provides estimates only — based on
+  simplified 2025 federal rules, flat-rate state approximations, and nexus
+  thresholds that change often. It is not tax, legal, or accounting advice, and
+  its authors accept no responsibility for incorrect tax documents, filings, or
+  penalties resulting from its use. <strong>Always consult a licensed tax
+  professional</strong> (CPA, EA, or tax attorney) before filing or registering
+  anywhere. See
+  <a href="https://github.com/PeytonFrankeCode/TaxTracker/blob/main/DISCLAIMER.md">DISCLAIMER.md</a>.</p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

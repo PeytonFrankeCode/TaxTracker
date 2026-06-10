@@ -1,11 +1,20 @@
 # TaxTracker
 
-A command-line tool to track income from any source — your SaaS, freelance
-work, a W-2 day job — estimate the federal taxes you'll owe, record the
-payments you've made, and keep you ahead of the IRS quarterly estimated-payment
-deadlines.
+Track income from any source — your SaaS, freelance work, a W-2 day job —
+estimate the federal and state taxes you'll owe, record the payments you've
+made, stay ahead of IRS quarterly deadlines, and get warned **before** your
+sales cross a state's sales-tax economic nexus threshold.
 
-Pure Python standard library. No dependencies to install. Requires Python 3.10+.
+Comes in two flavors that share the same data format:
+
+- a **CLI / interactive terminal app** (pure Python stdlib, Python 3.10+,
+  nothing to install), and
+- a **static web app** in [`docs/`](docs/) with a clickable US nexus map —
+  deployable free on GitHub Pages or Cloudflare Pages.
+
+> **Disclaimer:** TaxTracker provides estimates only and accepts no
+> responsibility for incorrect tax documents, filings, or penalties. Always
+> consult a licensed tax professional. See [DISCLAIMER.md](DISCLAIMER.md).
 
 ## Quick start
 
@@ -20,11 +29,13 @@ python -m taxtracker
  1) Add income
  2) Add expense
  3) Record a tax payment
- 4) Import Stripe payouts (CSV)
- 5) Show status (what you owe)
- 6) Show quarterly deadlines
- 7) List everything recorded
- 8) Settings (year / filing status / state)
+ 4) Record a sale (for state nexus tracking)
+ 5) Import Stripe payouts (CSV)
+ 6) Show status (what you owe)
+ 7) Nexus report (state sales-tax thresholds)
+ 8) Show quarterly deadlines
+ 9) List everything recorded
+ s) Settings (year / filing status / state / sales mode)
  q) Quit
 ```
 
@@ -54,6 +65,12 @@ python -m taxtracker payment 500 --jurisdiction state
 
 # Include your state's income tax in the estimate (persisted per year)
 python -m taxtracker status --state CA
+
+# Track sales for economic nexus warnings. Online mode records the buyer's
+# state; in-person mode defaults sales to your home state. Switch any time.
+python -m taxtracker status --mode online
+python -m taxtracker sale 4500 --to-state TX --transactions 12
+python -m taxtracker nexus
 
 # See where you stand
 python -m taxtracker status
@@ -85,10 +102,40 @@ Tax year 2026 (filing status: single)
 | `status --filing-status married` | Set your filing status (single/married) for the year |
 | `status --state CA` | Include state income tax (two-letter code; persisted) |
 | `status --state-rate 0.05` | Override the built-in state rate with your own |
+| `status --mode in-person` | Sales mode: `online` or `in-person` (changeable any time) |
+| `sale 4500 --to-state TX` | Record a sale toward that state's nexus threshold |
+| `nexus` | Per-state sales vs nexus thresholds, with warnings |
 | `import-stripe payouts.csv --source "MySaaS"` | Import a Stripe payout CSV (`--type` defaults to saas) |
 
 All data is stored in one human-readable JSON file, with each tax year kept
 separately.
+
+## Sales-tax nexus warnings
+
+Since *South Dakota v. Wayfair* (2018), most states require remote sellers to
+register and collect sales tax once sales into the state pass an "economic
+nexus" threshold — typically $100,000 and/or 200 transactions per year
+(CA/TX/NY are $500,000). Record your sales with the `sale` command (or the
+web UI) and TaxTracker warns you at **80%** of any state's threshold — and
+again when you cross it — with a reminder to **consult a tax advisor before
+continuing to sell into that state**. Warnings appear in `status`, in
+`nexus`, when recording the sale itself, and as banners in the web app.
+
+## The web app
+
+[`docs/`](docs/) is a zero-dependency static site: dashboard, entry forms,
+records, settings, and a **US tile map** that colors each state by how much
+of its nexus threshold you've used (click a state for its threshold). Data
+stays in your browser's localStorage; Export/Import JSON round-trips with the
+CLI's data file.
+
+**Host it on GitHub Pages:** repo Settings → Pages → Source: *Deploy from a
+branch* → Branch: `main`, folder `/docs`. Your site appears at
+`https://<user>.github.io/TaxTracker/`.
+
+**Move to Cloudflare later:** the site is plain HTML/CSS/JS, so Cloudflare
+Pages serves it unchanged — create a Pages project from the repo and set the
+output directory to `docs`.
 
 ## Running the tests
 
@@ -115,7 +162,13 @@ Stripe import accepts the payout CSV you download from the Stripe dashboard
 only imports payouts with `paid` status, files each payout under the tax year
 it arrived in, and remembers payout IDs so re-importing the same file is safe.
 
+Nexus thresholds are approximations of each state's published rules and
+change often; states also differ on what counts (gross vs. retail vs. taxable
+sales) and over what period. Treat the warnings as a prompt to talk to a
+professional, not as a registration decision.
+
 Not modeled: progressive state brackets, local taxes, QBI deduction, itemized
 deductions, tax credits, capital gains rates, or holiday/weekend deadline
 shifts. This is a planning tool to keep you from being surprised at filing
 time — not tax advice or a substitute for filing software or a professional.
+See [DISCLAIMER.md](DISCLAIMER.md).

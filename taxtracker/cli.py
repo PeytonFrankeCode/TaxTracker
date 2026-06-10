@@ -7,9 +7,11 @@ import sys
 from datetime import date
 
 from . import storage
-from .display import money, print_deadlines, print_import_summary, print_records, print_status
+from .display import (money, print_deadlines, print_import_summary, print_nexus,
+                      print_records, print_status)
 from .importer import import_payouts
-from .models import Expense, Income, INCOME_TYPES, Payment, FILING_STATUSES
+from .models import (Expense, Income, INCOME_TYPES, Payment, FILING_STATUSES,
+                     Sale, SALES_MODES)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -43,12 +45,26 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--jurisdiction", default="federal")
     p.add_argument("--note", default="")
 
+    p = sub.add_parser("sale", help="record a sale for sales-tax nexus tracking")
+    p.add_argument("amount", type=float)
+    p.add_argument("--to-state", help="buyer's two-letter state; defaults to your home "
+                                      "state when sales mode is in-person")
+    p.add_argument("--transactions", type=int, default=1,
+                   help="number of transactions this entry represents (default 1)")
+    p.add_argument("--date", default=date.today().isoformat(), help="YYYY-MM-DD (default: today)")
+    p.add_argument("--note", default="")
+
+    sub.add_parser("nexus", help="per-state sales totals vs economic nexus thresholds")
+
     p = sub.add_parser("status", help="estimated tax picture: liability, payments, balance due")
     p.add_argument("--filing-status", choices=sorted(FILING_STATUSES),
                    help="set/override filing status for this year")
     p.add_argument("--state", help='two-letter state code (e.g. CA) to include state tax')
     p.add_argument("--state-rate", type=float,
                    help="override the built-in flat state rate, e.g. 0.05 for 5%%")
+    p.add_argument("--mode", choices=sorted(SALES_MODES), dest="sales_mode",
+                   help="how you sell: online (track buyer states) or in-person "
+                        "(sales default to your home state); changeable any time")
 
     p = sub.add_parser("import-stripe", help="import income from a Stripe payout CSV export")
     p.add_argument("csv_file", help="path to the payouts CSV downloaded from Stripe")
@@ -94,6 +110,30 @@ def main(argv: list[str] | None = None) -> int:
         storage.save(path, ledger)
         print(f"Recorded {money(payment.amount)} {payment.kind} payment ({payment.jurisdiction}) on {payment.date}.")
 
+    elif args.command == "sale":
+        to_state = args.to_state
+        if not to_state:
+            if ledger.sales_mode == "in-person" and ledger.state:
+                to_state = ledger.state
+            else:
+                print("Error: --to-state is required in online mode (or set your "
+                      "home state and switch to in-person mode with "
+                      "'status --mode in-person').", file=sys.stderr)
+                return 1
+        sale = Sale(amount=args.amount, state=to_state, date=args.date,
+                    transactions=args.transactions, note=args.note)
+        ledger.sales.append(sale)
+        storage.save(path, ledger)
+        print(f"Recorded {money(sale.amount)} sale to {sale.state} "
+              f"({sale.transactions} txn) on {sale.date}.")
+        from .nexus import warnings as nexus_warnings
+        for alert in nexus_warnings(ledger):
+            if f" {sale.state}" in alert:
+                print(f"⚠ {alert}")
+
+    elif args.command == "nexus":
+        print_nexus(ledger)
+
     elif args.command == "status":
         changed = bool(filing_status)
         if args.state is not None:
@@ -101,6 +141,9 @@ def main(argv: list[str] | None = None) -> int:
             changed = True
         if args.state_rate is not None:
             ledger.state_rate = args.state_rate
+            changed = True
+        if args.sales_mode is not None:
+            ledger.sales_mode = args.sales_mode
             changed = True
         if changed:
             storage.save(path, ledger)

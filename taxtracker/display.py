@@ -5,7 +5,14 @@ from __future__ import annotations
 from datetime import date
 
 from .deadlines import next_deadline, upcoming_deadlines
+from .nexus import report as nexus_report, warnings as nexus_warnings
 from .tax import estimate
+
+DISCLAIMER = (
+    "Disclaimer: TaxTracker provides estimates only and accepts no "
+    "responsibility for incorrect tax documents, filings, or penalties. "
+    "Always consult a licensed tax professional. See DISCLAIMER.md."
+)
 
 
 def money(value: float) -> str:
@@ -49,9 +56,14 @@ def print_status(ledger) -> None:
         print("-" * 52)
         print(f"  Next deadline: {quarter} estimated payment due {due.isoformat()}")
         print(f"  Suggested payment to spread the balance: {money(suggested)}")
+
+    alerts = nexus_warnings(ledger)
+    if alerts:
+        print("-" * 52)
+        for alert in alerts:
+            print(f"  ⚠ {alert}")
     print()
-    print("Estimates only (2025 federal rules; state tax is a flat-rate "
-          "approximation; no credits or QBI).")
+    print(DISCLAIMER)
 
 
 def print_deadlines(year: int) -> None:
@@ -84,6 +96,41 @@ def print_records(ledger) -> None:
         print(f"  {p.date}  {money(p.amount):>12}  {p.kind:<12} {p.jurisdiction}{note}")
     if not ledger.payments:
         print("  (none)")
+
+
+def print_nexus(ledger) -> None:
+    rows = nexus_report(ledger)
+    mode = ledger.sales_mode
+    print(f"Sales-tax nexus report — tax year {ledger.year} (mode: {mode})")
+    if not rows:
+        print("  No sales recorded yet. Record sales with the 'sale' command "
+              "(or menu option) to track state thresholds.")
+        return
+    print("-" * 66)
+    print(f"  {'State':<6}{'Sales':>14}{'Txns':>7}{'Threshold':>16}{'Used':>8}  Status")
+    labels = {"ok": "ok", "approaching": "APPROACHING", "reached": "REACHED",
+              "no_sales_tax": "no sales tax"}
+    for n in rows:
+        if n.threshold_sales is None:
+            threshold = "—"
+            used = "—"
+        else:
+            threshold = f"${n.threshold_sales:,}"
+            if n.threshold_transactions:
+                joiner = "&" if n.both_required else "/"
+                threshold += f" {joiner} {n.threshold_transactions}tx"
+            used = f"{n.progress:.0%}"
+        print(f"  {n.state:<6}{money(n.sales):>14}{n.transactions:>7}"
+              f"{threshold:>16}{used:>8}  {labels[n.status]}")
+    alerts = nexus_warnings(ledger)
+    if alerts:
+        print("-" * 66)
+        for alert in alerts:
+            print(f"  ⚠ {alert}")
+    print()
+    print("Thresholds are approximations and change often — verify with each "
+          "state or a tax advisor.")
+    print(DISCLAIMER)
 
 
 def print_import_summary(result: dict) -> None:

@@ -6,20 +6,25 @@ from datetime import date
 from pathlib import Path
 
 from . import storage
-from .display import money, print_deadlines, print_import_summary, print_records, print_status
+from .display import (money, print_deadlines, print_import_summary, print_nexus,
+                      print_records, print_status)
 from .importer import ImportError_, import_payouts
-from .models import Expense, FILING_STATUSES, Income, INCOME_TYPES, Payment
+from .models import (Expense, FILING_STATUSES, Income, INCOME_TYPES, Payment,
+                     Sale, SALES_MODES)
+from .nexus import THRESHOLDS, warnings as nexus_warnings
 from .tax import STATE_RATES
 
 MENU = """
  1) Add income
  2) Add expense
  3) Record a tax payment
- 4) Import Stripe payouts (CSV)
- 5) Show status (what you owe)
- 6) Show quarterly deadlines
- 7) List everything recorded
- 8) Settings (year / filing status / state)
+ 4) Record a sale (for state nexus tracking)
+ 5) Import Stripe payouts (CSV)
+ 6) Show status (what you owe)
+ 7) Nexus report (state sales-tax thresholds)
+ 8) Show quarterly deadlines
+ 9) List everything recorded
+ s) Settings (year / filing status / state / sales mode)
  q) Quit
 """
 
@@ -107,6 +112,30 @@ def add_payment(ledger) -> bool:
     return True
 
 
+def add_sale(ledger) -> bool:
+    print(f"\nSales mode is '{ledger.sales_mode}' (changeable in Settings).")
+    default_state = ledger.state if (ledger.sales_mode == "in-person" and ledger.state) else None
+    while True:
+        code = ask("Buyer's state (two-letter code)", default=default_state).upper()
+        if code in THRESHOLDS:
+            break
+        print("  Use a two-letter US state code, e.g. TX or CA.")
+    raw_txns = ask("Number of transactions in this entry", default="1")
+    sale = Sale(
+        amount=ask_amount("Total amount"),
+        state=code,
+        transactions=int(raw_txns) if raw_txns.isdigit() and int(raw_txns) > 0 else 1,
+        date=ask_date(),
+        note=ask("Note (optional)", default=""),
+    )
+    ledger.sales.append(sale)
+    print(f"Recorded {money(sale.amount)} sale to {sale.state}.")
+    for alert in nexus_warnings(ledger):
+        if f" {sale.state}" in alert:
+            print(f"⚠ {alert}")
+    return True
+
+
 def import_stripe(data_path: Path) -> None:
     csv_file = ask("Path to the Stripe payouts CSV")
     if not Path(csv_file).expanduser().exists():
@@ -124,8 +153,9 @@ def settings(data_path: Path, ledger):
     """Edit per-year settings; returns the (possibly different) active ledger."""
     state = ledger.state or "none"
     print(f"\nCurrent: tax year {ledger.year}, filing status {ledger.filing_status}, "
-          f"state {state}")
+          f"state {state}, sales mode {ledger.sales_mode}")
     print(" 1) Filing status   2) State   3) Custom state rate   4) Switch tax year")
+    print(" 5) Sales mode (online / in-person)")
     choice = ask("Setting to change", default="1")
     if choice == "1":
         ledger.filing_status = ask_choice("Filing status", sorted(FILING_STATUSES),
@@ -159,6 +189,11 @@ def settings(data_path: Path, ledger):
             if raw.isdigit() and len(raw) == 4:
                 return storage.load(data_path, int(raw))
             print("  Enter a four-digit year, e.g. 2026")
+    elif choice == "5":
+        print("  online: you sell remotely; each sale records the buyer's state.")
+        print("  in-person: sales default to your home state.")
+        ledger.sales_mode = ask_choice("Sales mode", sorted(SALES_MODES),
+                                       default=ledger.sales_mode)
     storage.save(data_path, ledger)
     return ledger
 
@@ -172,7 +207,7 @@ def run(data_path: Path, year: int) -> int:
             state = f", state {ledger.state}" if ledger.state else ""
             print(f"\nTax year {ledger.year} ({ledger.filing_status}{state})")
             print(MENU)
-            choice = ask("What would you like to do?", default="5").lower()
+            choice = ask("What would you like to do?", default="6").lower()
             if choice in ("q", "quit", "exit"):
                 print("Bye — your data is saved.")
                 return 0
@@ -186,21 +221,27 @@ def run(data_path: Path, year: int) -> int:
                 if add_payment(ledger):
                     storage.save(data_path, ledger)
             elif choice == "4":
+                if add_sale(ledger):
+                    storage.save(data_path, ledger)
+            elif choice == "5":
                 import_stripe(data_path)
                 ledger = storage.load(data_path, ledger.year)
-            elif choice == "5":
-                print()
-                print_status(ledger)
             elif choice == "6":
                 print()
-                print_deadlines(ledger.year)
+                print_status(ledger)
             elif choice == "7":
                 print()
-                print_records(ledger)
+                print_nexus(ledger)
             elif choice == "8":
+                print()
+                print_deadlines(ledger.year)
+            elif choice == "9":
+                print()
+                print_records(ledger)
+            elif choice == "s":
                 ledger = settings(data_path, ledger)
             else:
-                print("  Pick a number from the menu, or q to quit.")
+                print("  Pick an option from the menu, or q to quit.")
     except (KeyboardInterrupt, EOFError):
         print("\nBye — your data is saved.")
         return 0

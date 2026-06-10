@@ -41,8 +41,16 @@ class InteractiveTests(unittest.TestCase):
         self.assertEqual(ledger.incomes[0].amount, 50.0)
 
     def test_status_view_and_quit(self):
-        output = run_session(self.data, ["5", "q"])
+        output = run_session(self.data, ["6", "q"])
         self.assertIn("Total estimated tax", output)
+
+    def test_add_sale_and_nexus_report(self):
+        # sale: choice, state, txns(default), amount, date(default), note(default)
+        output = run_session(self.data, ["4", "tx", "", "5000", "", "", "7", "q"])
+        self.assertIn("Recorded $5,000.00 sale to TX", output)
+        self.assertIn("Sales-tax nexus report", output)
+        ledger = storage.load(Path(self.data), 2026)
+        self.assertEqual(ledger.sales[0].state, "TX")
 
     def test_payment_flow(self):
         # choice, amount, kind(default), jurisdiction -> state, date(default), note(default)
@@ -53,13 +61,17 @@ class InteractiveTests(unittest.TestCase):
 
     def test_settings_change_state(self):
         # settings, option 2 (state), code, then quit
-        output = run_session(self.data, ["8", "2", "ca", "q"])
+        output = run_session(self.data, ["s", "2", "ca", "q"])
         self.assertIn("state CA", output)
         self.assertEqual(storage.load(Path(self.data), 2026).state, "CA")
 
     def test_settings_switch_year(self):
-        output = run_session(self.data, ["8", "4", "2025", "q"])
+        output = run_session(self.data, ["s", "4", "2025", "q"])
         self.assertIn("Tax year 2025", output)
+
+    def test_settings_change_sales_mode(self):
+        run_session(self.data, ["s", "5", "in-person", "q"])
+        self.assertEqual(storage.load(Path(self.data), 2026).sales_mode, "in-person")
 
     def test_eof_exits_cleanly(self):
         out = io.StringIO()
