@@ -9,6 +9,31 @@ Pure Python standard library. No dependencies to install. Requires Python 3.10+.
 
 ## Quick start
 
+The easiest way to use TaxTracker is interactive mode — just run it with no
+arguments and answer the prompts:
+
+```bash
+python -m taxtracker
+```
+
+```
+ 1) Add income
+ 2) Add expense
+ 3) Record a tax payment
+ 4) Import Stripe payouts (CSV)
+ 5) Show status (what you owe)
+ 6) Show quarterly deadlines
+ 7) List everything recorded
+ 8) Settings (year / filing status / state)
+ q) Quit
+```
+
+Every option walks you through with questions (amount? source? date?) and
+sensible defaults — press Enter to accept the suggestion in brackets.
+
+Everything is also available as direct commands for scripting or quick
+one-liners:
+
 ```bash
 # Record income (saas/freelance/business types are subject to self-employment tax)
 python -m taxtracker income 8500 --source "MySaaS" --type saas

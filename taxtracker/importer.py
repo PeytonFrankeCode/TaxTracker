@@ -13,6 +13,9 @@ import csv
 from datetime import datetime
 from pathlib import Path
 
+from . import storage
+from .models import Income
+
 # Candidate column names, in priority order, normalized to lowercase.
 AMOUNT_COLUMNS = ["net", "amount"]
 DATE_COLUMNS = ["arrival date (utc)", "arrival_date", "created (utc)", "created", "date"]
@@ -94,3 +97,44 @@ def parse_payout_csv(path: str | Path) -> tuple[list[dict], int]:
                 "date": _parse_date(line[date_col]),
             })
         return rows, skipped
+
+
+def import_payouts(data_path: Path, csv_file: str | Path,
+                   source: str = "Stripe", income_type: str = "saas") -> dict:
+    """Import a payout CSV, routing each payout to the ledger for its tax year.
+
+    Payout ids already present in a ledger are skipped, so re-importing the
+    same (or an overlapping) export is safe. Returns a summary dict.
+    """
+    rows, skipped = parse_payout_csv(csv_file)
+    by_year: dict[int, list[dict]] = {}
+    for row in rows:
+        by_year.setdefault(int(row["date"][:4]), []).append(row)
+
+    imported = 0
+    duplicates = 0
+    total = 0.0
+    for year, year_rows in sorted(by_year.items()):
+        ledger = storage.load(data_path, year)
+        existing_ids = {i.note for i in ledger.incomes if i.note.startswith("stripe:")}
+        for row in year_rows:
+            note = f"stripe:{row['id']}" if row["id"] else ""
+            if note and note in existing_ids:
+                duplicates += 1
+                continue
+            ledger.incomes.append(Income(
+                amount=row["amount"], source=source, type=income_type,
+                date=row["date"], note=note,
+            ))
+            existing_ids.add(note)
+            imported += 1
+            total += row["amount"]
+        storage.save(data_path, ledger)
+
+    return {
+        "imported": imported,
+        "duplicates": duplicates,
+        "skipped": skipped,
+        "total": total,
+        "years": sorted(by_year),
+    }
