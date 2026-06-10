@@ -75,6 +75,8 @@ class Ledger:
 
     year: int
     filing_status: str = "single"
+    state: str = ""  # two-letter code, e.g. "CA"; empty = no state tax estimated
+    state_rate: float | None = None  # override the built-in flat rate (e.g. 0.05)
     incomes: list[Income] = field(default_factory=list)
     expenses: list[Expense] = field(default_factory=list)
     payments: list[Payment] = field(default_factory=list)
@@ -90,6 +92,8 @@ class Ledger:
         return {
             "year": self.year,
             "filing_status": self.filing_status,
+            "state": self.state,
+            "state_rate": self.state_rate,
             "incomes": [i.to_dict() for i in self.incomes],
             "expenses": [e.to_dict() for e in self.expenses],
             "payments": [p.to_dict() for p in self.payments],
@@ -100,6 +104,8 @@ class Ledger:
         return cls(
             year=data["year"],
             filing_status=data.get("filing_status", "single"),
+            state=data.get("state", ""),
+            state_rate=data.get("state_rate"),
             incomes=[Income(**i) for i in data.get("incomes", [])],
             expenses=[Expense(**e) for e in data.get("expenses", [])],
             payments=[Payment(**p) for p in data.get("payments", [])],
