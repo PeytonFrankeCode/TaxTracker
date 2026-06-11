@@ -159,6 +159,19 @@
       <button>Save settings</button>
     </form>
     <div class="panel">
+      <h2>Stripe sync</h2>
+      <p class="hint">Connect your Stripe account to pull paid payouts automatically.
+        Create a <strong>restricted</strong> API key with read-only access to
+        <em>Payouts</em> only (Stripe Dashboard → Developers → API keys →
+        Create restricted key). The key is stored only in this browser and is
+        sent only to api.stripe.com. Never paste your full secret key.</p>
+      <label>Restricted API key
+        <input type="password" id="stripe-key" placeholder="rk_live_..."></label>
+      <button id="btn-stripe-sync">Sync payouts now</button>
+      <button id="btn-stripe-forget" class="danger">Forget key</button>
+      <p id="stripe-status" class="hint"></p>
+    </div>
+    <div class="panel">
       <h2>Your data</h2>
       <p class="hint">Data is stored only in this browser (localStorage). Export/import
         uses the same JSON format as the TaxTracker CLI's data file.</p>

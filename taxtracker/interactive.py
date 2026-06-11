@@ -21,7 +21,7 @@ MENU = """
  2) Add expense
  3) Record a tax payment
  4) Record a sale (for state nexus tracking)
- 5) Import Stripe payouts (CSV)
+ 5) Stripe payouts — sync from your account, or import a CSV
  6) Show status (what you owe)
  7) Nexus report (state sales-tax thresholds)
  8) Show quarterly deadlines
@@ -172,16 +172,41 @@ def setup_wizard(data_path: Path, ledger):
 
 
 def import_stripe(data_path: Path) -> None:
-    csv_file = ask("Path to the Stripe payouts CSV")
-    if not Path(csv_file).expanduser().exists():
-        print(f"  Can't find {csv_file}")
+    how = ask_choice("Sync from your Stripe account (api) or import a CSV file?",
+                     ["api", "csv"], default="api")
+    if how == "csv":
+        csv_file = ask("Path to the Stripe payouts CSV")
+        if not Path(csv_file).expanduser().exists():
+            print(f"  Can't find {csv_file}")
+            return
+        try:
+            result = import_payouts(data_path, Path(csv_file).expanduser())
+        except ImportError_ as exc:
+            print(f"  {exc}")
+            return
+        print_import_summary(result)
         return
+
+    from .importer import import_rows
+    from .stripe_sync import StripeError, fetch_payouts, resolve_key, save_key
+    key = resolve_key(None, data_path)
+    if not key:
+        print("\n  To sync, create a RESTRICTED Stripe key with read-only access "
+              "to Payouts:\n  Stripe Dashboard → Developers → API keys → "
+              "Create restricted key.")
+        key = ask("Paste the restricted key (or 'cancel')")
+        if key.lower() == "cancel":
+            return
+        if ask_choice("Save the key for future syncs?", ["yes", "no"],
+                      default="yes") == "yes":
+            key_file = save_key(data_path, key)
+            print(f"  Saved to {key_file} (owner-only permissions).")
     try:
-        result = import_payouts(data_path, Path(csv_file).expanduser())
-    except ImportError_ as exc:
-        print(f"  {exc}")
+        rows = fetch_payouts(key)
+    except StripeError as exc:
+        print(f"  Stripe sync failed: {exc}")
         return
-    print_import_summary(result)
+    print_import_summary(import_rows(data_path, rows))
 
 
 def settings(data_path: Path, ledger):

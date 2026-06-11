@@ -63,7 +63,12 @@ python -m taxtracker income 4000 --source "Day job" --type w2
 # Record deductible business expenses
 python -m taxtracker expense 240 --description "AWS hosting" --category hosting
 
-# Import your Stripe payouts directly (uses net amounts, skips unpaid,
+# Sync paid payouts straight from your Stripe account (restricted API key
+# with read-only Payouts access; --save-key remembers it for next time)
+python -m taxtracker sync-stripe --api-key rk_live_... --save-key
+python -m taxtracker sync-stripe   # any time after that
+
+# Or import a payout CSV export (uses net amounts, skips unpaid,
 # never double-imports the same payout)
 python -m taxtracker import-stripe payouts.csv
 
@@ -117,6 +122,7 @@ Tax year 2026 (filing status: single)
 | `explain` | Personalized guide: what you owe + what to file |
 | `status --product saas` | What you sell: saas/digital/physical/services/mixed |
 | `import-stripe payouts.csv --source "MySaaS"` | Import a Stripe payout CSV (`--type` defaults to saas) |
+| `sync-stripe [--api-key KEY] [--save-key]` | Pull paid payouts from the Stripe API (key also via `STRIPE_API_KEY`) |
 
 All data is stored in one human-readable JSON file, with each tax year kept
 separately.
@@ -180,6 +186,16 @@ Stripe import accepts the payout CSV you download from the Stripe dashboard
 (Balance → Payouts → Export). It uses the **net** amount (after Stripe fees),
 only imports payouts with `paid` status, files each payout under the tax year
 it arrived in, and remembers payout IDs so re-importing the same file is safe.
+
+Stripe **sync** (`sync-stripe` in the CLI, the Stripe panel in the web app's
+Settings) pulls paid payouts directly from the Stripe API — same routing and
+deduplication as the CSV import, so you can sync as often as you like.
+Authenticate with a **restricted** API key that has read-only access to
+Payouts only (Dashboard → Developers → API keys → Create restricted key);
+never use your full secret key. The CLI reads the key from `--api-key`, the
+`STRIPE_API_KEY` env var, or an owner-only `stripe_key` file created with
+`--save-key`. The web app keeps the key in your browser's localStorage and
+talks only to `api.stripe.com`.
 
 Nexus thresholds are approximations of each state's published rules and
 change often; states also differ on what counts (gross vs. retail vs. taxable

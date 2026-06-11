@@ -562,6 +562,75 @@ $("#btn-wipe").addEventListener("click", () => {
   }
 });
 
+/* ---------- Stripe sync ---------- */
+const STRIPE_KEY = KEY + ":stripe";
+
+async function fetchStripePayouts(apiKey) {
+  const rows = [];
+  let startingAfter = null;
+  for (let page = 0; page < 50; page++) {
+    const params = new URLSearchParams({ limit: "100", status: "paid" });
+    if (startingAfter) params.set("starting_after", startingAfter);
+    const res = await fetch("https://api.stripe.com/v1/payouts?" + params, {
+      headers: { Authorization: "Bearer " + apiKey },
+    });
+    if (res.status === 401 || res.status === 403)
+      throw new Error("Stripe rejected the key. Use a restricted key with read-only Payouts access.");
+    if (!res.ok) throw new Error("Stripe API error " + res.status);
+    const payload = await res.json();
+    for (const p of payload.data)
+      rows.push({ id: p.id, amount: p.amount / 100,
+                  date: new Date(p.arrival_date * 1000).toISOString().slice(0, 10) });
+    if (!payload.has_more || !payload.data.length) return rows;
+    startingAfter = payload.data[payload.data.length - 1].id;
+  }
+  throw new Error("Stopped after 5,000 payouts; something looks wrong.");
+}
+
+function importStripeRows(rows) {
+  const all = loadAll();
+  let imported = 0, duplicates = 0, total = 0;
+  for (const row of rows) {
+    const year = +row.date.slice(0, 4);
+    const l = Object.assign(emptyLedger(year), all[year]);
+    const note = "stripe:" + row.id;
+    if (l.incomes.some(i => i.note === note)) { duplicates++; all[year] = l; continue; }
+    l.incomes.push({ amount: row.amount, source: "Stripe", type: "saas",
+                     date: row.date, note });
+    all[year] = l;
+    imported++; total += row.amount;
+  }
+  saveAll(all);
+  return { imported, duplicates, total };
+}
+
+async function syncStripe() {
+  const status = $("#stripe-status");
+  const input = $("#stripe-key");
+  const apiKey = input.value.trim() || localStorage.getItem(STRIPE_KEY) || "";
+  if (!apiKey) { status.textContent = "Paste a restricted API key first."; return; }
+  status.textContent = "Syncing…";
+  try {
+    const rows = await fetchStripePayouts(apiKey);
+    localStorage.setItem(STRIPE_KEY, apiKey);
+    input.value = "";
+    const r = importStripeRows(rows);
+    status.textContent = `Synced ${r.imported} payouts totaling ${fmt(r.total)}` +
+      (r.duplicates ? ` (${r.duplicates} already imported, skipped).` : ".") +
+      " Key saved in this browser for next time.";
+    renderAll();
+  } catch (err) {
+    status.textContent = "Sync failed: " + err.message;
+  }
+}
+
+$("#btn-stripe-sync").addEventListener("click", syncStripe);
+$("#btn-stripe-forget").addEventListener("click", () => {
+  localStorage.removeItem(STRIPE_KEY);
+  $("#stripe-key").value = "";
+  $("#stripe-status").textContent = "Key removed from this browser.";
+});
+
 $("#btn-wizard").addEventListener("click", startWizard);
 
 populateStates();

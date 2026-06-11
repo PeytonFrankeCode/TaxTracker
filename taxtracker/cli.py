@@ -77,6 +77,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--type", default="saas", choices=sorted(INCOME_TYPES),
                    help="income type for imported payouts (default: saas)")
 
+    p = sub.add_parser("sync-stripe",
+                       help="pull paid payouts straight from your Stripe account")
+    p.add_argument("--api-key", help="restricted Stripe key (read-only Payouts); "
+                                     "or set STRIPE_API_KEY, or --save-key once")
+    p.add_argument("--save-key", action="store_true",
+                   help="store the key (owner-only file next to your data) for future syncs")
+    p.add_argument("--source", default="Stripe", help='income source label (default: "Stripe")')
+    p.add_argument("--type", default="saas", choices=sorted(INCOME_TYPES),
+                   help="income type for synced payouts (default: saas)")
+
     sub.add_parser("deadlines", help="upcoming quarterly estimated-payment deadlines")
     sub.add_parser("list", help="list all recorded income, expenses, and payments")
 
@@ -163,6 +173,28 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "import-stripe":
         print_import_summary(import_payouts(path, args.csv_file,
                                             source=args.source, income_type=args.type))
+
+    elif args.command == "sync-stripe":
+        from .importer import import_rows
+        from .stripe_sync import StripeError, fetch_payouts, resolve_key, save_key
+        key = resolve_key(args.api_key, path)
+        if not key:
+            print("No Stripe key found. Pass --api-key, set STRIPE_API_KEY, or run "
+                  "once with --api-key KEY --save-key.\n"
+                  "Use a RESTRICTED key with read-only Payouts access "
+                  "(Stripe Dashboard → Developers → API keys → Create restricted key).",
+                  file=sys.stderr)
+            return 1
+        try:
+            rows = fetch_payouts(key)
+        except StripeError as exc:
+            print(f"Stripe sync failed: {exc}", file=sys.stderr)
+            return 1
+        if args.save_key and args.api_key:
+            key_file = save_key(path, args.api_key)
+            print(f"Key saved to {key_file} (owner-only permissions).")
+        print_import_summary(import_rows(path, rows, source=args.source,
+                                         income_type=args.type))
 
     elif args.command == "deadlines":
         print_deadlines(args.year)

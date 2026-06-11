@@ -99,14 +99,13 @@ def parse_payout_csv(path: str | Path) -> tuple[list[dict], int]:
         return rows, skipped
 
 
-def import_payouts(data_path: Path, csv_file: str | Path,
-                   source: str = "Stripe", income_type: str = "saas") -> dict:
-    """Import a payout CSV, routing each payout to the ledger for its tax year.
+def import_rows(data_path: Path, rows: list[dict], source: str = "Stripe",
+                income_type: str = "saas", skipped: int = 0) -> dict:
+    """Import payout rows ({id, amount, date}), routing each to its tax year.
 
-    Payout ids already present in a ledger are skipped, so re-importing the
-    same (or an overlapping) export is safe. Returns a summary dict.
+    Payout ids already present in a ledger are skipped, so re-importing or
+    re-syncing the same payouts is safe. Returns a summary dict.
     """
-    rows, skipped = parse_payout_csv(csv_file)
     by_year: dict[int, list[dict]] = {}
     for row in rows:
         by_year.setdefault(int(row["date"][:4]), []).append(row)
@@ -138,3 +137,10 @@ def import_payouts(data_path: Path, csv_file: str | Path,
         "total": total,
         "years": sorted(by_year),
     }
+
+
+def import_payouts(data_path: Path, csv_file: str | Path,
+                   source: str = "Stripe", income_type: str = "saas") -> dict:
+    """Import a payout CSV export (see import_rows for dedup semantics)."""
+    rows, skipped = parse_payout_csv(csv_file)
+    return import_rows(data_path, rows, source, income_type, skipped)
