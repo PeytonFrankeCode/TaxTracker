@@ -133,6 +133,19 @@ def print_nexus(ledger) -> None:
     print(DISCLAIMER)
 
 
+def print_explain(ledger) -> None:
+    from .guidance import explain
+    print(f"Your personalized tax guide — {ledger.year}")
+    for title, lines in explain(ledger):
+        print()
+        print(title)
+        print("-" * len(title))
+        for line in lines:
+            print(f"  {line}")
+    print()
+    print(DISCLAIMER)
+
+
 def print_import_summary(result: dict) -> None:
     years = ", ".join(str(y) for y in result["years"]) or "none"
     print(f"Imported {result['imported']} payouts totaling "

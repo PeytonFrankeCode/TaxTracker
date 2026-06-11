@@ -14,6 +14,9 @@ FILING_STATUSES = {"single", "married"}
 
 SALES_MODES = {"online", "in-person"}
 
+# What you primarily sell; drives sales-tax taxability guidance ("" = not set).
+PRODUCT_TYPES = {"", "saas", "digital", "physical", "services", "mixed"}
+
 
 @dataclass
 class Sale:
@@ -104,6 +107,7 @@ class Ledger:
     state: str = ""  # two-letter code, e.g. "CA"; empty = no state tax estimated
     state_rate: float | None = None  # override the built-in flat rate (e.g. 0.05)
     sales_mode: str = "online"  # "online" or "in-person"; affects sale entry defaults
+    product_type: str = ""  # what you sell; see PRODUCT_TYPES
     incomes: list[Income] = field(default_factory=list)
     expenses: list[Expense] = field(default_factory=list)
     payments: list[Payment] = field(default_factory=list)
@@ -120,6 +124,11 @@ class Ledger:
                 f"Unknown sales mode {self.sales_mode!r}; "
                 f"expected one of {sorted(SALES_MODES)}"
             )
+        if self.product_type not in PRODUCT_TYPES:
+            raise ValueError(
+                f"Unknown product type {self.product_type!r}; "
+                f"expected one of {sorted(t for t in PRODUCT_TYPES if t)}"
+            )
 
     def to_dict(self) -> dict:
         return {
@@ -128,6 +137,7 @@ class Ledger:
             "state": self.state,
             "state_rate": self.state_rate,
             "sales_mode": self.sales_mode,
+            "product_type": self.product_type,
             "incomes": [i.to_dict() for i in self.incomes],
             "expenses": [e.to_dict() for e in self.expenses],
             "payments": [p.to_dict() for p in self.payments],
@@ -142,6 +152,7 @@ class Ledger:
             state=data.get("state", ""),
             state_rate=data.get("state_rate"),
             sales_mode=data.get("sales_mode", "online"),
+            product_type=data.get("product_type", ""),
             incomes=[Income(**i) for i in data.get("incomes", [])],
             expenses=[Expense(**e) for e in data.get("expenses", [])],
             payments=[Payment(**p) for p in data.get("payments", [])],

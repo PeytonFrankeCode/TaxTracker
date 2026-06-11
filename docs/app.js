@@ -38,6 +38,23 @@ const NEXUS = {
   WI:[100000,null,false],WY:[100000,null,false],
 };
 const APPROACHING = 0.8;
+/* Where each product type is *generally* subject to sales tax (coarse). */
+const NO_SALES_TAX = new Set(["DE", "MT", "NH", "OR"]);
+const ALL_TAX_STATES = Object.keys(NEXUS).filter(s => NEXUS[s] !== null);
+const TAXABILITY = {
+  saas: new Set(["AZ","CT","DC","HI","IA","KY","LA","MA","MS","NM","NY","OH",
+                 "PA","RI","SC","SD","TN","TX","UT","VT","WA","WV"]),
+  digital: new Set(["AL","AR","AZ","CO","CT","DC","GA","HI","IA","ID","IN","KS",
+                    "KY","LA","ME","MD","MN","MS","NC","NE","NJ","NM","NY","OH",
+                    "PA","RI","SD","TN","TX","UT","VT","WA","WI","WV","WY"]),
+  physical: new Set(ALL_TAX_STATES),
+  services: new Set(["HI","NM","SD","WV"]),
+  mixed: new Set(ALL_TAX_STATES),
+};
+const PRODUCT_LABELS = {
+  saas: "SaaS / cloud software", digital: "downloadable digital products",
+  physical: "physical goods", services: "services", mixed: "a mix of products",
+};
 /* Square-tile cartogram coordinates: state -> [column, row]. */
 const TILES = {
   AK:[1,1],ME:[12,1],WI:[6,2],VT:[10,2],NH:[11,2],
@@ -57,7 +74,8 @@ function loadAll() { return JSON.parse(localStorage.getItem(KEY) || "{}"); }
 function saveAll(all) { localStorage.setItem(KEY, JSON.stringify(all)); }
 function emptyLedger(year) {
   return { year, filing_status: "single", state: "", state_rate: null,
-           sales_mode: "online", incomes: [], expenses: [], payments: [], sales: [] };
+           sales_mode: "online", product_type: "",
+           incomes: [], expenses: [], payments: [], sales: [] };
 }
 function ledger() {
   const all = loadAll();
@@ -141,6 +159,193 @@ function nexusWarnings(l) {
         `collect sales tax there — consult a tax advisor now.` });
   }
   return msgs;
+}
+
+/* ---------- personalized guide (mirrors taxtracker/guidance.py) ---------- */
+function productTaxableIn(product, state) {
+  if (!product || !state) return null;
+  if (NO_SALES_TAX.has(state)) return false;
+  return TAXABILITY[product].has(state);
+}
+
+function buildGuide(l) {
+  const e = estimate(l);
+  const sections = [];
+  const hasSE = l.incomes.some(i => SE_TYPES.has(i.type));
+  const hasW2 = l.incomes.some(i => i.type === "w2");
+  const nextYear = l.year + 1;
+
+  let lines = [];
+  const totalIncome = e.seGross + e.otherIncome;
+  if (totalIncome > 0) {
+    lines.push(`Based on the <strong>${fmt(totalIncome)}</strong> of income you've recorded for ${l.year}, ` +
+      `your estimated total tax is <strong>${fmt(e.total)}</strong>: ` +
+      `${fmt(e.fed)} federal income tax` +
+      (e.se ? `, ${fmt(e.se)} self-employment tax (Social Security + Medicare on your business profit)` : "") +
+      (l.state ? `, and ${fmt(e.stateTax)} ${l.state} state income tax` : "") + ".");
+    lines.push(`You've recorded ${fmt(e.paid)} in payments, leaving ` +
+      `<strong>${fmt(Math.abs(e.balance))}</strong> ${e.balance >= 0 ? "still to pay" : "overpaid"}.`);
+    const up = upcomingDeadlines(l.year);
+    if (up.length && e.balance > 0)
+      lines.push(`To stay on track, pay about <strong>${fmt(e.balance / up.length)}</strong> by ` +
+        `${up[0][1].toLocaleDateString()} (${up[0][0]} deadline).`);
+  } else {
+    lines.push("No income recorded yet. Add income (or import Stripe payouts) and this " +
+      "section will show exactly what you owe and when.");
+  }
+  sections.push(["What you owe right now", lines]);
+
+  lines = [];
+  if (hasSE || !l.incomes.length) {
+    lines.push(`<strong>Form 1040</strong> with <strong>Schedule C</strong> (business profit & loss) and ` +
+      `<strong>Schedule SE</strong> (self-employment tax) — due April 15, ${nextYear}.`);
+    lines.push(`<strong>Form 1040-ES</strong> quarterly estimated payments — due ` +
+      deadlines(l.year).map(([, d]) => d.toLocaleDateString()).join(", ") +
+      `. The IRS expects you to pay as you earn; underpaying can mean penalties.`);
+    lines.push(`Pay online at IRS Direct Pay, then record each payment here so your balance stays accurate.`);
+  }
+  if (hasW2 && !hasSE)
+    lines.push(`<strong>Form 1040</strong> — due April 15, ${nextYear}. With W-2 income only, your ` +
+      `employer's withholding usually covers you; check it roughly matches the estimate above.`);
+  sections.push(["What to file: federal", lines]);
+
+  lines = [];
+  if (!l.state) {
+    lines.push("Set your home state (Setup or Settings) and this section will tell you " +
+      "whether you owe a state return.");
+  } else if ((STATE_RATES[l.state] || 0) === 0 && l.state_rate == null) {
+    lines.push(`${l.state} has no state income tax — no state income tax return to file. Lucky you.`);
+  } else {
+    lines.push(`<strong>${l.state} state income tax return</strong> — also due around April 15, ${nextYear}. ` +
+      `Most states piggyback on your federal numbers.`);
+    lines.push(`Many states also expect quarterly estimated payments; record them with jurisdiction "state".`);
+  }
+  sections.push(["What to file: state income tax", lines]);
+
+  lines = [];
+  const product = l.product_type;
+  if (!product) {
+    lines.push(`Tell us what you sell (run <strong>Setup</strong>, top right) and this section ` +
+      `will explain where sales tax applies to you.`);
+  } else {
+    const label = PRODUCT_LABELS[product];
+    if (l.state) {
+      if (NO_SALES_TAX.has(l.state))
+        lines.push(`${l.state} has no statewide sales tax, so in-state sales of ${label} aren't taxed.`);
+      else if (productTaxableIn(product, l.state))
+        lines.push(`${l.state} generally <strong>DOES tax ${label}</strong>. Selling to ${l.state} customers ` +
+          `usually means registering for a sales tax permit, collecting tax, and filing returns ` +
+          `(the state assigns a monthly or quarterly schedule).`);
+      else
+        lines.push(`${l.state} generally does <strong>NOT</strong> tax ${label}, so in-state sales are ` +
+          `likely exempt — but verify, exemptions have fine print.`);
+    }
+    if (l.sales_mode === "online") {
+      const report = nexusReport(l);
+      const hot = Object.entries(report).filter(([, n]) => n.status === "warn" || n.status === "hit");
+      if (hot.length) {
+        for (const [state, n] of hot) {
+          const prefix = n.status === "hit"
+            ? `You've <strong>crossed ${state}'s economic nexus threshold</strong> (${fmt(n.sales)} in sales).`
+            : `You're at <strong>${Math.round(n.progress * 100)}%</strong> of ${state}'s economic nexus threshold.`;
+          lines.push(productTaxableIn(product, state)
+            ? `${prefix} ${state} generally taxes ${label} — you may need to register and collect there. ` +
+              `<strong>Talk to a tax advisor before your next sale into ${state}.</strong>`
+            : `${prefix} The good news: ${state} generally does not tax ${label}, so you may have no ` +
+              `collection duty even with nexus — confirm with a tax advisor.`);
+        }
+      } else {
+        lines.push(`You sell online: each state's sales-tax duty only kicks in after you cross its economic ` +
+          `nexus threshold (usually $100k/200 transactions per year). Keep recording sales and watch the ` +
+          `Nexus Map — we'll warn you at 80%.`);
+      }
+    } else {
+      lines.push(`You sell in person, so sales tax is generally just your home state's rules above — ` +
+        `no multi-state tracking needed unless you start selling remotely.`);
+    }
+    lines.push(`Note: sales tax is collected from the buyer and passed through — it's not part of the ` +
+      `income-tax numbers above.`);
+  }
+  sections.push(["Sales tax: where it applies to you", lines]);
+
+  sections.push(["The fine print", [
+    "This guidance assumes a sole proprietor or single-member LLC. Corporations, partnerships, and " +
+      "S-corp owner-employees have different filings.",
+    "Taxability rules and nexus thresholds are approximations and change constantly. Before registering " +
+      "anywhere or filing anything, confirm with a licensed tax professional.",
+  ]]);
+  return sections;
+}
+
+function renderGuide(l) {
+  $("#guide-content").innerHTML = buildGuide(l).map(([title, lines]) =>
+    `<div class="panel guide-section"><h2>${title}</h2><ul>` +
+    lines.map(li => `<li>${li}</li>`).join("") + `</ul></div>`).join("");
+}
+
+/* ---------- setup wizard ---------- */
+const WIZ_STEPS = [
+  {
+    q: "Which state do you live or operate in?",
+    render(l) {
+      const opts = Object.keys(NEXUS).sort().map(s =>
+        `<option value="${s}" ${l.state === s ? "selected" : ""}>${s}</option>`).join("");
+      return `<select id="wiz-input">${opts}</select><button id="wiz-next">Next</button>`;
+    },
+    save(l) { l.state = $("#wiz-input").value; },
+  },
+  {
+    q: "What do you mainly sell?",
+    choices: [["saas", "SaaS — software customers access online"],
+              ["digital", "Digital downloads — apps, media, e-books"],
+              ["physical", "Physical goods — things you ship or hand over"],
+              ["services", "Services — consulting, design, development…"],
+              ["mixed", "A mix of the above"]],
+    save(l, v) { l.product_type = v; },
+  },
+  {
+    q: "How do you sell?",
+    choices: [["online", "Online — customers can be anywhere"],
+              ["in-person", "In person — local, face-to-face sales"]],
+    save(l, v) { l.sales_mode = v; },
+  },
+  {
+    q: "What's your tax filing status?",
+    choices: [["single", "Single"], ["married", "Married filing jointly"]],
+    save(l, v) { l.filing_status = v; },
+  },
+];
+
+function startWizard() {
+  let step = 0;
+  const l = ledger();
+  const show = () => {
+    const s = WIZ_STEPS[step];
+    $("#wiz-title").textContent = step === 0 ? "Welcome to TaxTracker" : "Quick setup";
+    $("#wiz-question").textContent = s.q;
+    $("#wiz-step").textContent = `Question ${step + 1} of ${WIZ_STEPS.length}`;
+    const box = $("#wiz-options");
+    if (s.choices) {
+      box.innerHTML = s.choices.map(([v, label]) =>
+        `<button data-v="${v}">${label}</button>`).join("");
+      box.querySelectorAll("button").forEach(b =>
+        b.addEventListener("click", () => { s.save(l, b.dataset.v); advance(); }));
+    } else {
+      box.innerHTML = s.render(l);
+      $("#wiz-next").addEventListener("click", () => { s.save(l); advance(); });
+    }
+  };
+  const advance = () => {
+    step += 1;
+    if (step < WIZ_STEPS.length) { show(); return; }
+    saveLedger(l);
+    localStorage.setItem(KEY + ":setup", "done");
+    $("#wizard").classList.add("hidden");
+    renderAll();
+    document.querySelector('nav button[data-tab="guide"]').click();
+  };
+  $("#wizard").classList.remove("hidden");
+  show();
 }
 
 /* ---------- rendering ---------- */
@@ -251,6 +456,7 @@ function renderSettings(l) {
   f.state.value = l.state || "";
   f.state_rate.value = l.state_rate ?? "";
   f.sales_mode.value = l.sales_mode;
+  f.product_type.value = l.product_type || "";
 }
 
 function renderHeader(l) {
@@ -266,7 +472,7 @@ function renderHeader(l) {
 function renderAll() {
   const l = ledger();
   renderHeader(l); renderAlerts(l); renderDashboard(l);
-  renderMap(l); renderRecords(l); renderSettings(l);
+  renderGuide(l); renderMap(l); renderRecords(l); renderSettings(l);
 }
 
 /* ---------- wiring ---------- */
@@ -324,6 +530,7 @@ $("#f-settings").addEventListener("submit", (ev) => {
   l.state = d.get("state");
   l.state_rate = d.get("state_rate") === "" ? null : +d.get("state_rate");
   l.sales_mode = d.get("sales_mode");
+  l.product_type = d.get("product_type");
   activeYear = newYear;
   saveLedger(l);
   renderAll();
@@ -355,6 +562,10 @@ $("#btn-wipe").addEventListener("click", () => {
   }
 });
 
+$("#btn-wizard").addEventListener("click", startWizard);
+
 populateStates();
 setDateDefaults();
 renderAll();
+/* First visit: walk new users through setup automatically. */
+if (!localStorage.getItem(KEY + ":setup") && !ledger().incomes.length) startWizard();

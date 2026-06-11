@@ -6,15 +6,17 @@ from datetime import date
 from pathlib import Path
 
 from . import storage
-from .display import (money, print_deadlines, print_import_summary, print_nexus,
-                      print_records, print_status)
+from .display import (money, print_deadlines, print_explain, print_import_summary,
+                      print_nexus, print_records, print_status)
 from .importer import ImportError_, import_payouts
 from .models import (Expense, FILING_STATUSES, Income, INCOME_TYPES, Payment,
-                     Sale, SALES_MODES)
+                     PRODUCT_TYPES, Sale, SALES_MODES)
 from .nexus import THRESHOLDS, warnings as nexus_warnings
 from .tax import STATE_RATES
 
 MENU = """
+ w) Setup wizard — answer a few questions, get a personal tax guide
+ e) Explain my taxes (what you owe + what to file)
  1) Add income
  2) Add expense
  3) Record a tax payment
@@ -24,7 +26,7 @@ MENU = """
  7) Nexus report (state sales-tax thresholds)
  8) Show quarterly deadlines
  9) List everything recorded
- s) Settings (year / filing status / state / sales mode)
+ s) Settings (year / filing status / state / sales mode / product)
  q) Quit
 """
 
@@ -136,6 +138,39 @@ def add_sale(ledger) -> bool:
     return True
 
 
+def setup_wizard(data_path: Path, ledger):
+    """A few questions, then a personalized guide. Re-runnable any time."""
+    print("\nLet's set you up — four quick questions.\n")
+
+    while True:
+        code = ask("1/4  Which state do you live/operate in? (two-letter code, "
+                   "e.g. CA)", default=ledger.state or None).upper()
+        if code in THRESHOLDS:
+            ledger.state = code
+            break
+        print("  Use a two-letter US state code, e.g. TX or CA.")
+
+    print("\n     saas: software accessed online   digital: downloads (apps, media)")
+    print("     physical: shipped goods           services: consulting, design, etc.")
+    ledger.product_type = ask_choice(
+        "2/4  What do you mainly sell?",
+        sorted(t for t in PRODUCT_TYPES if t),
+        default=ledger.product_type or "saas")
+
+    print("\n     online: customers anywhere (we track each buyer's state)")
+    print("     in-person: local sales (we assume your home state)")
+    ledger.sales_mode = ask_choice("3/4  How do you sell?", sorted(SALES_MODES),
+                                   default=ledger.sales_mode)
+
+    ledger.filing_status = ask_choice("4/4  Filing status?", sorted(FILING_STATUSES),
+                                      default=ledger.filing_status)
+
+    storage.save(data_path, ledger)
+    print("\nAll set. Here's your personalized guide:\n")
+    print_explain(ledger)
+    return ledger
+
+
 def import_stripe(data_path: Path) -> None:
     csv_file = ask("Path to the Stripe payouts CSV")
     if not Path(csv_file).expanduser().exists():
@@ -155,7 +190,7 @@ def settings(data_path: Path, ledger):
     print(f"\nCurrent: tax year {ledger.year}, filing status {ledger.filing_status}, "
           f"state {state}, sales mode {ledger.sales_mode}")
     print(" 1) Filing status   2) State   3) Custom state rate   4) Switch tax year")
-    print(" 5) Sales mode (online / in-person)")
+    print(" 5) Sales mode (online / in-person)   6) Product type")
     choice = ask("Setting to change", default="1")
     if choice == "1":
         ledger.filing_status = ask_choice("Filing status", sorted(FILING_STATUSES),
@@ -194,6 +229,10 @@ def settings(data_path: Path, ledger):
         print("  in-person: sales default to your home state.")
         ledger.sales_mode = ask_choice("Sales mode", sorted(SALES_MODES),
                                        default=ledger.sales_mode)
+    elif choice == "6":
+        ledger.product_type = ask_choice(
+            "Product type", sorted(t for t in PRODUCT_TYPES if t),
+            default=ledger.product_type or "saas")
     storage.save(data_path, ledger)
     return ledger
 
@@ -202,6 +241,9 @@ def run(data_path: Path, year: int) -> int:
     ledger = storage.load(data_path, year)
     print("TaxTracker — interactive mode (data file: "
           f"{data_path})")
+    if not ledger.state and not ledger.product_type and not ledger.incomes:
+        print("New here? Choose 'w' to answer a few setup questions and get a "
+              "personalized tax guide.")
     try:
         while True:
             state = f", state {ledger.state}" if ledger.state else ""
@@ -211,6 +253,11 @@ def run(data_path: Path, year: int) -> int:
             if choice in ("q", "quit", "exit"):
                 print("Bye — your data is saved.")
                 return 0
+            elif choice == "w":
+                ledger = setup_wizard(data_path, ledger)
+            elif choice == "e":
+                print()
+                print_explain(ledger)
             elif choice == "1":
                 if add_income(ledger):
                     storage.save(data_path, ledger)

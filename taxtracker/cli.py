@@ -7,11 +7,11 @@ import sys
 from datetime import date
 
 from . import storage
-from .display import (money, print_deadlines, print_import_summary, print_nexus,
-                      print_records, print_status)
+from .display import (money, print_deadlines, print_explain, print_import_summary,
+                      print_nexus, print_records, print_status)
 from .importer import import_payouts
 from .models import (Expense, Income, INCOME_TYPES, Payment, FILING_STATUSES,
-                     Sale, SALES_MODES)
+                     PRODUCT_TYPES, Sale, SALES_MODES)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -56,6 +56,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("nexus", help="per-state sales totals vs economic nexus thresholds")
 
+    sub.add_parser("explain", help="plain-English guide: what you owe and what to file")
+
     p = sub.add_parser("status", help="estimated tax picture: liability, payments, balance due")
     p.add_argument("--filing-status", choices=sorted(FILING_STATUSES),
                    help="set/override filing status for this year")
@@ -65,6 +67,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--mode", choices=sorted(SALES_MODES), dest="sales_mode",
                    help="how you sell: online (track buyer states) or in-person "
                         "(sales default to your home state); changeable any time")
+    p.add_argument("--product", choices=sorted(t for t in PRODUCT_TYPES if t),
+                   dest="product_type",
+                   help="what you sell (drives sales-tax guidance in 'explain')")
 
     p = sub.add_parser("import-stripe", help="import income from a Stripe payout CSV export")
     p.add_argument("csv_file", help="path to the payouts CSV downloaded from Stripe")
@@ -134,6 +139,9 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "nexus":
         print_nexus(ledger)
 
+    elif args.command == "explain":
+        print_explain(ledger)
+
     elif args.command == "status":
         changed = bool(filing_status)
         if args.state is not None:
@@ -144,6 +152,9 @@ def main(argv: list[str] | None = None) -> int:
             changed = True
         if args.sales_mode is not None:
             ledger.sales_mode = args.sales_mode
+            changed = True
+        if args.product_type is not None:
+            ledger.product_type = args.product_type
             changed = True
         if changed:
             storage.save(path, ledger)

@@ -26,6 +26,8 @@ python -m taxtracker
 ```
 
 ```
+ w) Setup wizard — answer a few questions, get a personal tax guide
+ e) Explain my taxes (what you owe + what to file)
  1) Add income
  2) Add expense
  3) Record a tax payment
@@ -35,9 +37,16 @@ python -m taxtracker
  7) Nexus report (state sales-tax thresholds)
  8) Show quarterly deadlines
  9) List everything recorded
- s) Settings (year / filing status / state / sales mode)
+ s) Settings (year / filing status / state / sales mode / product)
  q) Quit
 ```
+
+New? Hit `w`: four questions (your state, what you sell, how you sell,
+filing status) and you get a personalized guide — what you owe based on the
+income you've recorded, which forms to file and when (1040, Schedule C/SE,
+1040-ES, state return), and whether sales tax applies to your product in
+your state and any state where you're nearing nexus. Re-read it any time
+with `e` (or `python -m taxtracker explain`).
 
 Every option walks you through with questions (amount? source? date?) and
 sensible defaults — press Enter to accept the suggestion in brackets.
@@ -105,6 +114,8 @@ Tax year 2026 (filing status: single)
 | `status --mode in-person` | Sales mode: `online` or `in-person` (changeable any time) |
 | `sale 4500 --to-state TX` | Record a sale toward that state's nexus threshold |
 | `nexus` | Per-state sales vs nexus thresholds, with warnings |
+| `explain` | Personalized guide: what you owe + what to file |
+| `status --product saas` | What you sell: saas/digital/physical/services/mixed |
 | `import-stripe payouts.csv --source "MySaaS"` | Import a Stripe payout CSV (`--type` defaults to saas) |
 
 All data is stored in one human-readable JSON file, with each tax year kept
@@ -123,11 +134,19 @@ continuing to sell into that state**. Warnings appear in `status`, in
 
 ## The web app
 
-[`docs/`](docs/) is a zero-dependency static site: dashboard, entry forms,
-records, settings, and a **US tile map** that colors each state by how much
-of its nexus threshold you've used (click a state for its threshold). Data
-stays in your browser's localStorage; Export/Import JSON round-trips with the
-CLI's data file.
+[`docs/`](docs/) is a zero-dependency static site. First visit opens a
+**setup wizard** (state, product type, sales mode, filing status — re-run
+any time with the Setup button), which feeds a **My Guide** tab explaining
+in plain English what you owe based on your entries and exactly what to
+file. Plus: dashboard, entry forms, records, settings, and a **US tile map**
+that colors each state by how much of its nexus threshold you've used.
+Data stays in your browser's localStorage; Export/Import JSON round-trips
+with the CLI's data file.
+
+Product type matters more than it looks: whether SaaS or digital goods are
+even subject to sales tax varies by state (e.g., Texas generally taxes SaaS,
+California generally doesn't), and the guide takes that into account per
+state.
 
 **Host it on GitHub Pages:** repo Settings → Pages → Source: *Deploy from a
 branch* → Branch: `main`, folder `/docs`. Your site appears at
